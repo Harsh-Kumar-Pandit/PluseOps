@@ -36,7 +36,7 @@ class User(Base):
         default=datetime.utcnow
     )
 
-    monitore = relationship(
+    monitors = relationship(
         "Monitor",
         back_populates="user",
         cascade="all, delete-orphan"

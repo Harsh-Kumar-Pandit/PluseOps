@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from app.core.dependencies import get_current_user
 
 from app.core.database import get_db
 from app.core.security import (
@@ -21,6 +22,15 @@ router = APIRouter(
     prefix="/api/auth",
     tags=["Authentication"],
 )
+
+@router.get(
+    "/me",
+    response_model=UserResponse,
+)
+def get_me(
+    current_user: User = Depends(get_current_user)
+):
+    return current_user
 
 
 @router.post(
@@ -45,7 +55,7 @@ def register(
     user = User(
         name=data.name,
         email=data.email,
-        password_hash=hash_password(data.password),
+        password=hash_password(data.password),
     )
 
     db.add(user)
@@ -75,7 +85,7 @@ def login(
 
     if not verify_password(
         data.password,
-        user.password_hash,
+        user.password,
     ):
         raise HTTPException(
             status_code=401,

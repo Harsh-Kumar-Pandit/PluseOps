@@ -16,8 +16,8 @@ engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 SessionLocal = sessionmaker(
     bind = engine,
-    autoFlush = False,
-    autoCommit = False
+    autoflush = False,
+    autocommit = False
 )
 
 class Base(DeclarativeBase):
