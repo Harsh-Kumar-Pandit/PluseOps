@@ -1,3 +1,5 @@
+from app.models import RefreshToken
+from datetime import datetime
 from app.core.security import create_refresh_token
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -98,8 +100,27 @@ def login(
             detail="Invalid email or password",
         )
 
-    access_token = create_access_token(user.id)    
+    access_token = create_access_token(user.id)
     refresh_token = create_refresh_token(user.id)
+
+    payload = jwt.decode(
+        refresh_token,
+        SECRET_KEY,
+        algorithms=[ALGORITHM],
+    )
+
+    expires_at = datetime.utcfromtimestamp(
+        payload["exp"]
+    )
+
+    db_refresh_token = RefreshToken(
+    user_id=user.id,
+        token=refresh_token,
+        expires_at=expires_at,
+    )
+
+    db.add(db_refresh_token)
+    db.commit()
 
     return TokenResponse(
         access_token=access_token,
@@ -112,6 +133,7 @@ def login(
 )
 def refresh(
     refresh_token: str,
+    db: Session = Depends(get_db),
 ):
     try:
         payload = jwt.decode(
@@ -127,6 +149,25 @@ def refresh(
             raise HTTPException(
                 status_code=401,
                 detail="Invalid refresh token",
+            )
+
+        stored_token = db.scalar(
+            select(RefreshToken).where(
+                RefreshToken.token == refresh_token,
+                RefreshToken.user_id == int(user_id),
+            )
+        )
+
+        if not stored_token:
+            raise HTTPException(
+                status_code=401,
+                detail="Refresh token not found",
+            )
+
+        if stored_token.revoked:
+            raise HTTPException(
+                status_code=401,
+                detail="Refresh token has been revoked",
             )
 
         new_access_token = create_access_token(
@@ -149,3 +190,28 @@ def refresh(
             status_code=401,
             detail="Invalid refresh token",
         )
+
+@router.post("/logout")
+def logout(
+    refresh_token: str,
+    db: Session = Depends(get_db),
+):
+    stored_token = db.scalar(
+        select(RefreshToken).where(
+            RefreshToken.token == refresh_token
+        )
+    )
+
+    if not stored_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid refresh token",
+        )
+
+    stored_token.revoked = True
+
+    db.commit()
+
+    return {
+        "message": "Logged out successfully"
+    }

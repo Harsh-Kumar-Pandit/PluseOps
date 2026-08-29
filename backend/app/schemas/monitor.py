@@ -1,14 +1,38 @@
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 
 
 class MonitorCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=100)
+
     url: HttpUrl
-    method: str = "GET"
-    interval: int = 60
-    timeout: int = 10
-    expected_status: int = 200
-    failure_threshold: int = 2
+
+    method: str = Field(
+        default="GET",
+        pattern="^(GET|HEAD)$",
+    )
+
+    interval: int = Field(
+        default=60,
+        ge=10,
+    )
+
+    timeout: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+    )
+
+    expected_status: int = Field(
+        default=200,
+        ge=100,
+        le=599,
+    )
+
+    failure_threshold: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+    )
 
 
 class MonitorUpdate(BaseModel):
