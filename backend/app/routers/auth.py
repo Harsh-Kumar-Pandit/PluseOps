@@ -1,11 +1,17 @@
+from app.core.security import create_refresh_token
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_user
 
 from app.core.database import get_db
+import jwt
+
 from app.core.security import (
+    ALGORITHM,
+    SECRET_KEY,
     create_access_token,
+    create_refresh_token,
     hash_password,
     verify_password,
 )
@@ -92,9 +98,54 @@ def login(
             detail="Invalid email or password",
         )
 
-    token = create_access_token(user.id)
+    access_token = create_access_token(user.id)    
+    refresh_token = create_refresh_token(user.id)
 
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-    }
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )
+
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+)
+def refresh(
+    refresh_token: str,
+):
+    try:
+        payload = jwt.decode(
+            refresh_token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+        )
+
+        user_id = payload.get("sub")
+        token_type = payload.get("type")
+
+        if not user_id or token_type != "refresh":
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid refresh token",
+            )
+
+        new_access_token = create_access_token(
+            int(user_id)
+        )
+
+        return TokenResponse(
+            access_token=new_access_token,
+            refresh_token=refresh_token,
+        )
+
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=401,
+            detail="Refresh token expired",
+        )
+
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid refresh token",
+        )

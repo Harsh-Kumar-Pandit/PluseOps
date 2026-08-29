@@ -53,5 +53,13 @@ def get_current_user(
             status_code=401,
             detail="User not found",
         )
+    
+    token_type = payload.get("type")
+
+    if token_type != "access":
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token type",
+        )
 
     return user
