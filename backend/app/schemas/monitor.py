@@ -36,13 +36,42 @@ class MonitorCreate(BaseModel):
 
 
 class MonitorUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+    )
+
     url: HttpUrl | None = None
-    method: str | None = None
-    interval: int | None = None
-    timeout: int | None = None
-    expected_status: int | None = None
-    failure_threshold: int | None = None
+
+    method: str | None = Field(
+        default=None,
+        pattern="^(GET|HEAD)$",
+    )
+
+    interval: int | None = Field(
+        default=None,
+        ge=10,
+    )
+
+    timeout: int | None = Field(
+        default=None,
+        ge=1,
+        le=60,
+    )
+
+    expected_status: int | None = Field(
+        default=None,
+        ge=100,
+        le=599,
+    )
+
+    failure_threshold: int | None = Field(
+        default=None,
+        ge=1,
+        le=10,
+    )
+
     is_active: bool | None = None
 
 
