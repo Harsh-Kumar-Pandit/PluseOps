@@ -65,6 +65,30 @@ class Monitor(Base):
         nullable=False
     )
 
+    consecutive_failures: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+
+    consecutive_successes: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0
+    )
+
+    recovery_threshold: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=2
+    )
+
+    degraded_threshold: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=2000
+    )
+
     status: Mapped[str] = mapped_column(
         String(20),
         default="PENDING",
@@ -80,6 +104,11 @@ class Monitor(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow
+    )
+
+    last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
     )
 
     user = relationship(
@@ -98,3 +127,4 @@ class Monitor(Base):
         back_populates="monitor",
         cascade="all, delete-orphan"
     )
+

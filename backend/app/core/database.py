@@ -1,4 +1,4 @@
-from sqlalchemy.util.typing import final
+# pyrefly: ignore [missing-import]
 import os
 
 from dotenv import load_dotenv
