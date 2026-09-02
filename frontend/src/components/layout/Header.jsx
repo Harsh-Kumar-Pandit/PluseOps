@@ -1,10 +1,12 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
 import { Menu, User } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import ThemeSwitcher from '../common/ThemeSwitcher';
 
 export default function Header({ onToggleMobile }) {
   const location = useLocation();
+  const { user } = useAuth();
 
   // Determine section title based on active path
   const getSectionTitle = (path) => {
@@ -37,11 +39,15 @@ export default function Header({ onToggleMobile }) {
         {/* Real Theme Switcher */}
         <ThemeSwitcher />
 
-        {/* Account Placeholder */}
-        <div className="user-area-placeholder">
-          <User size={15} style={{ color: 'var(--text-secondary)' }} />
-          <span>Account Placeholder</span>
-        </div>
+        {/* Real Authenticated User Display */}
+        {user && (
+          <div className="user-area-placeholder" title={user.email}>
+            <User size={15} style={{ color: 'var(--brand-dark)' }} />
+            <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+              {user.name || user.email}
+            </span>
+          </div>
+        )}
       </div>
     </header>
   );

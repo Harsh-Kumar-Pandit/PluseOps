@@ -5,6 +5,7 @@ import { Routes, Route } from 'react-router-dom';
 import PublicLayout from '../components/layout/PublicLayout';
 import AppLayout from '../components/layout/AppLayout';
 import ProtectedRoute from './ProtectedRoute';
+import PublicAuthRoute from './PublicAuthRoute';
 
 // Public Pages
 import Home from '../pages/public/Home';
@@ -31,8 +32,22 @@ export default function AppRoutes() {
       <Route element={<PublicLayout />}>
         <Route path="/" element={<Home />} />
         <Route path="/docs" element={<Docs />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+        <Route
+          path="/login"
+          element={
+            <PublicAuthRoute>
+              <Login />
+            </PublicAuthRoute>
+          }
+        />
+        <Route
+          path="/register"
+          element={
+            <PublicAuthRoute>
+              <Register />
+            </PublicAuthRoute>
+          }
+        />
       </Route>
 
       {/* Authenticated Application Layout Routes */}

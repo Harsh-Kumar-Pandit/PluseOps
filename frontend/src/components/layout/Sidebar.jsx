@@ -1,8 +1,18 @@
 import React from 'react';
-import { NavLink, Link } from 'react-router-dom';
+import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { Activity, LayoutDashboard, Radio, AlertTriangle, Settings, LogOut, X } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
 export default function Sidebar({ mobileOpen, onCloseMobile }) {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    if (onCloseMobile) onCloseMobile();
+    await logout();
+    navigate('/login', { replace: true });
+  };
+
   return (
     <>
       {mobileOpen && (
@@ -63,8 +73,8 @@ export default function Sidebar({ mobileOpen, onCloseMobile }) {
           <button
             type="button"
             className="sidebar-link"
-            style={{ width: '100%', background: 'none', border: 'none', cursor: 'not-allowed' }}
-            disabled
+            onClick={handleLogout}
+            style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
           >
             <LogOut size={18} />
             <span>Logout</span>
