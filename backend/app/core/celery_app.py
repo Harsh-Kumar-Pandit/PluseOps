@@ -16,13 +16,12 @@ celery_app.conf.update(
 )
 
 celery_app.conf.beat_schedule = {
-    "check-monitors-every-minute": {
+    "check-monitors-periodically": {
         "task": "app.workers.tasks.check_all_monitors",
-        "schedule": 60.0,
+        "schedule": 5.0,
     },
-        "cleanup-old-health-checks": {
+    "cleanup-old-health-checks": {
         "task": "app.workers.tasks.cleanup_old_health_checks",
         "schedule": 86400.0,
     },
-
 }

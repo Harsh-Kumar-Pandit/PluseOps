@@ -54,6 +54,8 @@ services:
     depends_on:
       - db
       - redis
+    volumes:
+      - ./backend:/app
 
 volumes:
   postgres_data:

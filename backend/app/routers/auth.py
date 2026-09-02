@@ -23,6 +23,9 @@ from app.schemas.auth import (
     RegisterRequest,
     TokenResponse,
     UserResponse,
+    UpdatePreferencesRequest,
+    NotificationPreferencesResponse,
+    UpdateProfileRequest,
 )
 
 
@@ -38,6 +41,64 @@ router = APIRouter(
 def get_me(
     current_user: User = Depends(get_current_user)
 ):
+    return current_user
+
+
+@router.patch(
+    "/profile",
+    response_model=UserResponse,
+)
+def update_profile(
+    data: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    cleaned_name = data.name.strip() if data.name else ""
+    if not cleaned_name:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Name cannot be empty.",
+        )
+    if len(cleaned_name) > 100:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Name must not exceed 100 characters.",
+        )
+
+    current_user.name = cleaned_name
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.get(
+    "/preferences",
+    response_model=NotificationPreferencesResponse,
+)
+def get_preferences(
+    current_user: User = Depends(get_current_user)
+):
+    return current_user
+
+
+@router.patch(
+    "/preferences",
+    response_model=UserResponse,
+)
+def update_preferences(
+    data: UpdatePreferencesRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if data.email_notifications_enabled is not None:
+        current_user.email_notifications_enabled = data.email_notifications_enabled
+    if data.down_alerts_enabled is not None:
+        current_user.down_alerts_enabled = data.down_alerts_enabled
+    if data.recovery_alerts_enabled is not None:
+        current_user.recovery_alerts_enabled = data.recovery_alerts_enabled
+
+    db.commit()
+    db.refresh(current_user)
     return current_user
 
 

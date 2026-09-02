@@ -40,6 +40,18 @@ export default function StatusBadge({ status = 'PENDING', size = 'normal' }) {
       dotColor: 'var(--info)',
       label: 'PENDING',
     },
+    OPEN: {
+      bg: 'var(--danger-soft)',
+      color: 'var(--danger)',
+      dotColor: 'var(--danger)',
+      label: 'OPEN',
+    },
+    RESOLVED: {
+      bg: 'var(--success-soft)',
+      color: 'var(--success)',
+      dotColor: 'var(--success)',
+      label: 'RESOLVED',
+    },
   };
 
   const config = statusConfig[statusUpper] || statusConfig.PENDING;

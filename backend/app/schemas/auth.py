@@ -22,7 +22,30 @@ class UserResponse(BaseModel):
     id: int
     name: str
     email: EmailStr
+    email_notifications_enabled: bool = True
+    down_alerts_enabled: bool = True
+    recovery_alerts_enabled: bool = True
 
     model_config = {
         "from_attributes": True
     }
+
+
+class UpdatePreferencesRequest(BaseModel):
+    email_notifications_enabled: bool | None = None
+    down_alerts_enabled: bool | None = None
+    recovery_alerts_enabled: bool | None = None
+
+
+class NotificationPreferencesResponse(BaseModel):
+    email_notifications_enabled: bool = True
+    down_alerts_enabled: bool = True
+    recovery_alerts_enabled: bool = True
+
+    model_config = {
+        "from_attributes": True
+    }
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str

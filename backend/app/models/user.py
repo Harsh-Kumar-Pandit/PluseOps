@@ -1,6 +1,5 @@
-from enum import unique
 from datetime import datetime
-from sqlalchemy import DateTime, String
+from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
@@ -28,6 +27,24 @@ class User(Base):
 
     password: Mapped[str] = mapped_column(
         String(255),
+        nullable=False
+    )
+
+    email_notifications_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False
+    )
+
+    down_alerts_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False
+    )
+
+    recovery_alerts_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
         nullable=False
     )
 

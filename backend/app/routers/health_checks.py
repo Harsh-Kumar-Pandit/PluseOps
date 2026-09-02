@@ -23,11 +23,16 @@ def get_health_history(
     limit: int = Query(
         default=50,
         ge=1,
-        le=100,
+        le=1000,
     ),
     offset: int = Query(
         default=0,
         ge=0,
+    ),
+    hours: int = Query(
+        default=None,
+        ge=1,
+        le=720,
     ),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -45,16 +50,19 @@ def get_health_history(
             detail="Monitor not found",
         )
 
+    filters = [HealthCheck.monitor_id == monitor_id]
+    if hours:
+        since = datetime.utcnow() - timedelta(hours=hours)
+        filters.append(HealthCheck.checked_at >= since)
+
     total = db.scalar(
         select(func.count(HealthCheck.id))
-        .where(HealthCheck.monitor_id == monitor_id)
+        .where(*filters)
     ) or 0
 
     health_checks = db.scalars(
         select(HealthCheck)
-        .where(
-            HealthCheck.monitor_id == monitor_id
-        )
+        .where(*filters)
         .order_by(
             HealthCheck.checked_at.desc()
         )

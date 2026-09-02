@@ -1,17 +1,20 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Activity } from 'lucide-react';
 
 export default function PublicFooter() {
+  const location = useLocation();
+  const isDocsPage = location.pathname.startsWith('/docs');
+
   return (
-    <footer className="public-footer">
+    <footer className={`public-footer ${isDocsPage ? 'fixed-docs-footer' : ''}`}>
       <div className="footer-container">
         <div className="footer-top">
           <div className="footer-brand">
-            <div className="public-brand" style={{ marginBottom: '8px' }}>
+            <Link to="/" className="public-brand" style={{ marginBottom: '8px', textDecoration: 'none', display: 'inline-flex' }}>
               <Activity size={18} className="public-brand-icon" />
               <span>PulseOps</span>
-            </div>
+            </Link>
             <p className="body-text text-muted" style={{ fontSize: '0.8125rem' }}>
               Infrastructure monitoring for websites and APIs. Real-time health checks, incident detection, and performance tracking.
             </p>
@@ -27,14 +30,7 @@ export default function PublicFooter() {
             <Link to="/register" className="footer-link">
               Get Started
             </Link>
-            <a href="https://github.com" target="_blank" rel="noreferrer" className="footer-link">
-              GitHub
-            </a>
           </div>
-        </div>
-
-        <div className="footer-bottom">
-          <p>© {new Date().getFullYear()} PulseOps. All rights reserved.</p>
         </div>
       </div>
     </footer>

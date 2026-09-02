@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
-import { Activity, Menu, X, ExternalLink, LayoutDashboard } from 'lucide-react';
+import { Activity, Menu, X, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import ThemeSwitcher from '../common/ThemeSwitcher';
 
@@ -29,15 +29,6 @@ export default function PublicNavbar() {
         >
           Docs
         </NavLink>
-        <a
-          href="https://github.com"
-          target="_blank"
-          rel="noreferrer"
-          className="public-nav-link"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-        >
-          GitHub <ExternalLink size={12} />
-        </a>
 
         {isAuthenticated ? (
           <Link

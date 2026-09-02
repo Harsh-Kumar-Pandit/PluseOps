@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { Menu, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import ThemeSwitcher from '../common/ThemeSwitcher';
+import NotificationBell from '../notifications/NotificationBell';
 
 export default function Header({ onToggleMobile }) {
   const location = useLocation();
@@ -16,6 +17,7 @@ export default function Header({ onToggleMobile }) {
     if (path.startsWith('/monitors')) return 'Monitors';
     if (path.startsWith('/incidents/')) return 'Incident Detail';
     if (path.startsWith('/incidents')) return 'Incidents';
+    if (path.startsWith('/notifications')) return 'Notifications';
     if (path.startsWith('/settings')) return 'Settings';
     return 'Control Panel';
   };
@@ -36,6 +38,9 @@ export default function Header({ onToggleMobile }) {
       </div>
 
       <div className="header-actions">
+        {/* Real Notification Bell */}
+        <NotificationBell />
+
         {/* Real Theme Switcher */}
         <ThemeSwitcher />
 

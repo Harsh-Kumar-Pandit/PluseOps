@@ -21,6 +21,7 @@ import MonitorDetail from '../pages/app/MonitorDetail';
 import MonitorEdit from '../pages/app/MonitorEdit';
 import Incidents from '../pages/app/Incidents';
 import IncidentDetail from '../pages/app/IncidentDetail';
+import Notifications from '../pages/app/Notifications';
 import Settings from '../pages/app/Settings';
 
 // 404
@@ -66,6 +67,7 @@ export default function AppRoutes() {
         <Route path="/monitors/:id/edit" element={<MonitorEdit />} />
         <Route path="/incidents" element={<Incidents />} />
         <Route path="/incidents/:id" element={<IncidentDetail />} />
+        <Route path="/notifications" element={<Notifications />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
 

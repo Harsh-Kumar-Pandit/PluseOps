@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
-import { Activity, LayoutDashboard, Radio, AlertTriangle, Settings, LogOut, X } from 'lucide-react';
+import { Activity, LayoutDashboard, Radio, AlertTriangle, Bell, Settings, LogOut, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export default function Sidebar({ mobileOpen, onCloseMobile }) {
@@ -20,7 +20,7 @@ export default function Sidebar({ mobileOpen, onCloseMobile }) {
       )}
       <aside className={`app-sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
         <div className="sidebar-header">
-          <Link to="/dashboard" className="public-brand" onClick={onCloseMobile}>
+          <Link to="/" className="public-brand" onClick={onCloseMobile}>
             <Activity size={20} className="public-brand-icon" />
             <span>PulseOps</span>
           </Link>
@@ -57,6 +57,15 @@ export default function Sidebar({ mobileOpen, onCloseMobile }) {
           >
             <AlertTriangle size={18} />
             <span>Incidents</span>
+          </NavLink>
+
+          <NavLink
+            to="/notifications"
+            onClick={onCloseMobile}
+            className={({ isActive }) => (isActive ? 'sidebar-link active' : 'sidebar-link')}
+          >
+            <Bell size={18} />
+            <span>Notifications</span>
           </NavLink>
 
           <NavLink

@@ -13,16 +13,16 @@ import {
   Zap,
   Activity,
   RefreshCw,
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
+  TrendingUp,
 } from 'lucide-react';
 import { monitorsApi } from '../../api/monitors';
 import { healthApi } from '../../api/health';
+import { incidentsApi } from '../../api/incidents';
 import StatusBadge from '../../components/common/StatusBadge';
 
-/**
- * Parse Python UTC ISO timestamp correctly into a JavaScript Date object.
- * Python datetime.utcnow().isoformat() produces strings like "2026-09-02T15:44:05.123456" (without trailing Z).
- * Appending 'Z' when missing forces JS to parse as UTC.
- */
 function parseUtcDate(isoString) {
   if (!isoString) return null;
   const normalized =
@@ -33,9 +33,6 @@ function parseUtcDate(isoString) {
   return isNaN(d.getTime()) ? null : d;
 }
 
-/**
- * Format ISO timestamp into human-readable relative time (e.g. "12 seconds ago", "Just now")
- */
 function getRelativeTime(isoString, nowTimestamp = Date.now()) {
   const date = parseUtcDate(isoString);
   if (!date) return 'Not checked yet';
@@ -61,8 +58,13 @@ export default function MonitorDetail() {
 
   const [monitor, setMonitor] = useState(null);
   const [healthChecks, setHealthChecks] = useState([]);
+  const [monitorIncidents, setMonitorIncidents] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [statsDays, setStatsDays] = useState(30);
+
   const [loading, setLoading] = useState(true);
   const [healthLoading, setHealthLoading] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(false);
   const [error, setError] = useState('');
   const [healthError, setHealthError] = useState('');
   const [actionPending, setActionPending] = useState(false);
@@ -70,7 +72,10 @@ export default function MonitorDetail() {
   const [toastMessage, setToastMessage] = useState('');
   const [isRefreshingData, setIsRefreshingData] = useState(false);
 
-  // Local ticker timestamp used for live 1-second relative time & countdown display
+  // Pagination for health checks
+  const [healthPage, setHealthPage] = useState(0);
+  const pageSize = 10;
+
   const [tickerTime, setTickerTime] = useState(() => Date.now());
 
   const latestCheckedAtRef = useRef(null);
@@ -82,22 +87,28 @@ export default function MonitorDetail() {
     setTimeout(() => setToastMessage(''), 3000);
   };
 
-  // 1. Initial Page Data Fetch
+  // 1. Fetch Monitor Detail, Health Checks, Incidents & Stats
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError('');
     setHealthError('');
 
     try {
-      // Fetch monitor detail
       const monitorData = await monitorsApi.getMonitor(id);
       setMonitor(monitorData);
 
-      // Fetch health checks history
-      try {
-        setHealthLoading(true);
-        const healthData = await healthApi.getHealthChecks(id, 10, 0);
-        const items = healthData.items || [];
+      // Fetch health checks, incidents, and stats in parallel
+      setHealthLoading(true);
+      setStatsLoading(true);
+
+      const [healthDataRes, incidentsRes, statsRes] = await Promise.allSettled([
+        healthApi.getHealthChecks(id, pageSize, healthPage * pageSize),
+        incidentsApi.getIncidents(),
+        healthApi.getStats(id, statsDays),
+      ]);
+
+      if (healthDataRes.status === 'fulfilled') {
+        const items = healthDataRes.value.items || [];
         const sorted = [...items].sort((a, b) => {
           const tA = parseUtcDate(a.checked_at)?.getTime() || 0;
           const tB = parseUtcDate(b.checked_at)?.getTime() || 0;
@@ -109,39 +120,52 @@ export default function MonitorDetail() {
           latestHealthCheckIdRef.current = sorted[0].id;
         } else if (monitorData.last_checked_at) {
           latestCheckedAtRef.current = monitorData.last_checked_at;
-          latestHealthCheckIdRef.current = null;
-        } else {
-          latestCheckedAtRef.current = null;
-          latestHealthCheckIdRef.current = null;
         }
-      } catch (hErr) {
-        console.error('Failed to load health history:', hErr.message);
-        setHealthError(hErr.message || 'Unable to load health history.');
-      } finally {
-        setHealthLoading(false);
+      } else {
+        setHealthError(healthDataRes.reason?.message || 'Unable to load health history.');
       }
+      setHealthLoading(false);
+
+      if (incidentsRes.status === 'fulfilled') {
+        const allIncidents = Array.isArray(incidentsRes.value) ? incidentsRes.value : [];
+        const filtered = allIncidents.filter((inc) => String(inc.monitor_id) === String(id));
+        setMonitorIncidents(filtered);
+      }
+
+      if (statsRes.status === 'fulfilled') {
+        setStats(statsRes.value);
+      }
+      setStatsLoading(false);
     } catch (err) {
       console.error('Failed to load monitor detail:', err.message);
       setError(err.message || 'Monitor not found.');
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, healthPage, statsDays]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  // 2. Local 1-Second Visual Ticker (Updates relative time & countdown string locally, ZERO API CALLS)
+  // Fetch stats when statsDays time range changes
+  useEffect(() => {
+    let isMounted = true;
+    healthApi.getStats(id, statsDays).then((data) => {
+      if (isMounted) setStats(data);
+    }).catch(() => {});
+    return () => { isMounted = false; };
+  }, [id, statsDays]);
+
+  // 2. Visual 1-Second Ticker
   useEffect(() => {
     const timer = setInterval(() => {
       setTickerTime(Date.now());
     }, 1000);
-
     return () => clearInterval(timer);
   }, []);
 
-  // 3. Decoupled 5-Second Health Polling (Detects new backend checks without full-page reloads)
+  // 3. Background Polling (5s)
   useEffect(() => {
     const isPaused = !monitor || !monitor.is_active || monitor.status === 'PAUSED';
     if (isPaused) return;
@@ -153,7 +177,7 @@ export default function MonitorDetail() {
       isPollingRef.current = true;
 
       try {
-        const healthData = await healthApi.getHealthChecks(id, 10, 0);
+        const healthData = await healthApi.getHealthChecks(id, pageSize, 0);
         if (!isMounted) return;
 
         const items = healthData.items || [];
@@ -168,16 +192,21 @@ export default function MonitorDetail() {
           const newestTime = parseUtcDate(newest.checked_at)?.getTime() || 0;
           const prevTime = parseUtcDate(latestCheckedAtRef.current)?.getTime() || 0;
 
-          // Compare newest checked_at and ID with previously known values
           if (newestTime > prevTime || newest.id !== latestHealthCheckIdRef.current) {
             latestCheckedAtRef.current = newest.checked_at;
             latestHealthCheckIdRef.current = newest.id;
-            setHealthChecks(sorted);
+            if (healthPage === 0) {
+              setHealthChecks(sorted);
+            }
 
             try {
-              const updatedMonitor = await monitorsApi.getMonitor(id);
+              const [updatedMonitor, updatedStats] = await Promise.all([
+                monitorsApi.getMonitor(id),
+                healthApi.getStats(id, statsDays),
+              ]);
               if (isMounted) {
                 setMonitor(updatedMonitor);
+                setStats(updatedStats);
               }
             } catch (mErr) {
               console.error('Background monitor sync error:', mErr.message);
@@ -191,16 +220,14 @@ export default function MonitorDetail() {
       }
     };
 
-    // Poll every 5 seconds while component is mounted
     const pollInterval = setInterval(pollHealth, 5000);
 
     return () => {
       isMounted = false;
       clearInterval(pollInterval);
     };
-  }, [id, monitor?.is_active, monitor?.status]);
+  }, [id, monitor?.is_active, monitor?.status, healthPage, statsDays]);
 
-  // Defensive sort: newest health check first
   const sortedHealthChecks = Array.isArray(healthChecks)
     ? [...healthChecks].sort((a, b) => {
         const dateA = parseUtcDate(a.checked_at)?.getTime() || 0;
@@ -212,28 +239,10 @@ export default function MonitorDetail() {
   const newestHealthCheck = sortedHealthChecks.length > 0 ? sortedHealthChecks[0] : null;
   const lastCheckedIso = newestHealthCheck?.checked_at || monitor?.last_checked_at;
 
-  // Manual Refresh Handler
   const handleManualRefresh = async () => {
     setIsRefreshingData(true);
     try {
-      const [monitorData, healthData] = await Promise.all([
-        monitorsApi.getMonitor(id),
-        healthApi.getHealthChecks(id, 10, 0),
-      ]);
-      setMonitor(monitorData);
-      const items = healthData.items || [];
-      const sorted = [...items].sort((a, b) => {
-        const tA = parseUtcDate(a.checked_at)?.getTime() || 0;
-        const tB = parseUtcDate(b.checked_at)?.getTime() || 0;
-        return tB - tA;
-      });
-      setHealthChecks(sorted);
-      if (sorted.length > 0) {
-        latestCheckedAtRef.current = sorted[0].checked_at;
-        latestHealthCheckIdRef.current = sorted[0].id;
-      } else if (monitorData.last_checked_at) {
-        latestCheckedAtRef.current = monitorData.last_checked_at;
-      }
+      await fetchData();
       showToast('Data refreshed.');
     } catch (err) {
       console.error('Manual refresh failed:', err.message);
@@ -256,20 +265,7 @@ export default function MonitorDetail() {
         showToast('Monitor resumed.');
       }
       setMonitor(updated);
-      const healthData = await healthApi.getHealthChecks(id, 10, 0);
-      const items = healthData.items || [];
-      const sorted = [...items].sort((a, b) => {
-        const tA = parseUtcDate(a.checked_at)?.getTime() || 0;
-        const tB = parseUtcDate(b.checked_at)?.getTime() || 0;
-        return tB - tA;
-      });
-      setHealthChecks(sorted);
-      if (sorted.length > 0) {
-        latestCheckedAtRef.current = sorted[0].checked_at;
-        latestHealthCheckIdRef.current = sorted[0].id;
-      } else if (updated.last_checked_at) {
-        latestCheckedAtRef.current = updated.last_checked_at;
-      }
+      await fetchData();
     } catch (err) {
       console.error('Failed to toggle pause/resume:', err.message);
       setError(err.message || 'Unable to update monitor state.');
@@ -297,7 +293,7 @@ export default function MonitorDetail() {
 
   if (loading) {
     return (
-      <div style={{ maxWidth: '880px', margin: '0 auto', width: '100%' }}>
+      <div style={{ maxWidth: '920px', margin: '0 auto', width: '100%' }}>
         <p className="body-text text-muted">Loading monitor details...</p>
       </div>
     );
@@ -305,7 +301,7 @@ export default function MonitorDetail() {
 
   if (error || !monitor) {
     return (
-      <div style={{ maxWidth: '880px', margin: '0 auto', width: '100%' }}>
+      <div style={{ maxWidth: '920px', margin: '0 auto', width: '100%' }}>
         <Link
           to="/monitors"
           style={{
@@ -340,7 +336,6 @@ export default function MonitorDetail() {
 
   const isPaused = !monitor.is_active || monitor.status === 'PAUSED';
 
-  // Latest Response formatting
   let latestResponseText = 'Waiting for first check';
   if (newestHealthCheck) {
     if (newestHealthCheck.response_time !== null && newestHealthCheck.response_time !== undefined) {
@@ -350,12 +345,10 @@ export default function MonitorDetail() {
     }
   }
 
-  // Last Checked formatting (using local 1-second ticker)
   const lastCheckedText = lastCheckedIso
     ? getRelativeTime(lastCheckedIso, tickerTime)
     : 'Not checked yet';
 
-  // Next Check countdown calculation
   let nextCheckText = 'Waiting for first check';
   if (isPaused) {
     nextCheckText = 'Paused';
@@ -375,7 +368,7 @@ export default function MonitorDetail() {
   }
 
   return (
-    <div style={{ maxWidth: '880px', margin: '0 auto', width: '100%', position: 'relative' }}>
+    <div style={{ maxWidth: '920px', margin: '0 auto', width: '100%', position: 'relative' }}>
       {/* Toast Notification */}
       {toastMessage && (
         <div
@@ -392,7 +385,7 @@ export default function MonitorDetail() {
             color: 'var(--text-primary)',
             border: '1px solid var(--border)',
             borderRadius: 'var(--radius-md)',
-            boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.1))',
+            boxShadow: 'var(--shadow-md)',
             fontSize: '0.875rem',
             fontWeight: 500,
           }}
@@ -402,7 +395,7 @@ export default function MonitorDetail() {
         </div>
       )}
 
-      {/* Navigation & Title Bar */}
+      {/* Header & Controls */}
       <div style={{ marginBottom: '1.5rem' }}>
         <Link
           to="/monitors"
@@ -450,7 +443,6 @@ export default function MonitorDetail() {
             </div>
           </div>
 
-          {/* Action Buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             <button
               type="button"
@@ -509,7 +501,7 @@ export default function MonitorDetail() {
         </div>
       </div>
 
-      {/* COMPACT MONITORING STATUS BAR */}
+      {/* COMPACT STATUS BAR */}
       <div
         style={{
           display: 'grid',
@@ -518,7 +510,6 @@ export default function MonitorDetail() {
           marginBottom: '1.5rem',
         }}
       >
-        {/* Status */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '1rem 1.25rem' }}>
           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Activity size={14} /> Current Status
@@ -528,7 +519,6 @@ export default function MonitorDetail() {
           </div>
         </div>
 
-        {/* Latest Response */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '1rem 1.25rem' }}>
           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Zap size={14} /> Latest Response
@@ -538,7 +528,6 @@ export default function MonitorDetail() {
           </span>
         </div>
 
-        {/* Last Checked */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '1rem 1.25rem' }}>
           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Clock size={14} /> Last Checked
@@ -548,7 +537,6 @@ export default function MonitorDetail() {
           </span>
         </div>
 
-        {/* Next Check */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '1rem 1.25rem' }}>
           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
             <RefreshCw size={14} /> Next Check
@@ -565,12 +553,124 @@ export default function MonitorDetail() {
         </div>
       </div>
 
+      {/* STATISTICS SECTION WITH TIME RANGE SELECTOR */}
+      <div className="card" style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <h2 className="heading-md" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <TrendingUp size={18} style={{ color: 'var(--brand-dark)' }} /> Performance Statistics
+          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'var(--surface-secondary)', padding: '3px', borderRadius: 'var(--radius-md)' }}>
+            {[1, 7, 30].map((d) => (
+              <button
+                key={d}
+                type="button"
+                className={`btn btn-sm ${statsDays === d ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ padding: '0.25rem 0.625rem', fontSize: '0.75rem', fontWeight: 600 }}
+                onClick={() => setStatsDays(d)}
+              >
+                {d === 1 ? '24H' : `${d}D`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {statsLoading ? (
+          <p className="body-text text-muted" style={{ fontSize: '0.875rem' }}>Loading statistics...</p>
+        ) : stats ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '1rem' }}>
+            <div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Uptime</span>
+              <p className="font-mono" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: '4px 0 0' }}>
+                {stats.uptime_percentage !== undefined && stats.uptime_percentage !== null ? `${stats.uptime_percentage.toFixed(2)}%` : '—'}
+              </p>
+            </div>
+            <div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Total Checks</span>
+              <p className="font-mono" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: '4px 0 0' }}>
+                {stats.total_checks ?? '—'}
+              </p>
+            </div>
+            <div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Successful</span>
+              <p className="font-mono" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--brand-dark)', margin: '4px 0 0' }}>
+                {stats.successful_checks ?? '—'}
+              </p>
+            </div>
+            <div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Failed</span>
+              <p className="font-mono" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--danger)', margin: '4px 0 0' }}>
+                {stats.failed_checks ?? '—'}
+              </p>
+            </div>
+            <div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Avg Response</span>
+              <p className="font-mono" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: '4px 0 0' }}>
+                {stats.average_response_time !== null && stats.average_response_time !== undefined ? `${Math.round(stats.average_response_time)} ms` : '—'}
+              </p>
+            </div>
+            <div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Peak Latency</span>
+              <p className="font-mono" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--warning)', margin: '4px 0 0' }}>
+                {stats.max_response_time !== null && stats.max_response_time !== undefined ? `${stats.max_response_time} ms` : '—'}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <p className="body-text text-muted" style={{ fontSize: '0.875rem' }}>No statistics available.</p>
+        )}
+      </div>
+
+      {/* RECENT INCIDENTS FOR THIS MONITOR */}
+      <div className="card" style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <h2 className="heading-md" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <AlertTriangle size={18} style={{ color: 'var(--warning)' }} /> Recent Incidents
+        </h2>
+        {monitorIncidents.length === 0 ? (
+          <p className="body-text text-muted" style={{ margin: 0, fontSize: '0.875rem' }}>No incidents recorded</p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                  <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Status</th>
+                  <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Reason</th>
+                  <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Started</th>
+                  <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Duration</th>
+                  <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600, textAlign: 'right' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monitorIncidents.map((inc) => (
+                  <tr key={inc.id} style={{ borderBottom: '1px solid var(--border-muted)' }}>
+                    <td style={{ padding: '0.625rem 0.75rem' }}>
+                      <StatusBadge status={inc.status} />
+                    </td>
+                    <td style={{ padding: '0.625rem 0.75rem', color: 'var(--text-secondary)' }}>{inc.reason || 'Threshold failure'}</td>
+                    <td className="font-mono" style={{ padding: '0.625rem 0.75rem', fontSize: '0.8125rem' }}>
+                      {parseUtcDate(inc.started_at)?.toLocaleString() || 'N/A'}
+                    </td>
+                    <td className="font-mono" style={{ padding: '0.625rem 0.75rem', fontSize: '0.8125rem' }}>
+                      {inc.duration !== null ? `${inc.duration}s` : 'Ongoing'}
+                    </td>
+                    <td style={{ padding: '0.625rem 0.75rem', textAlign: 'right' }}>
+                      <Link to={`/incidents/${inc.id}`} className="btn btn-secondary btn-sm" style={{ textDecoration: 'none' }}>
+                        Details
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* RECENT HEALTH CHECKS HISTORY TABLE */}
       <div className="card" style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h2 className="heading-md" style={{ margin: 0 }}>Recent Health Checks</h2>
           <span className="body-text text-muted" style={{ fontSize: '0.75rem' }}>
-            Last 10 checks
+            Page {healthPage + 1}
           </span>
         </div>
 
@@ -597,127 +697,67 @@ export default function MonitorDetail() {
             <p className="body-text text-muted" style={{ margin: 0 }}>No health checks recorded yet.</p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
-                  <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Status</th>
-                  <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>HTTP Code</th>
-                  <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Latency</th>
-                  <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Checked At</th>
-                  <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Error / Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedHealthChecks.map((check) => (
-                  <tr key={check.id} style={{ borderBottom: '1px solid var(--border-muted)' }}>
-                    <td style={{ padding: '0.625rem 0.75rem' }}>
-                      <StatusBadge status={check.status} />
-                    </td>
-                    <td className="font-mono" style={{ padding: '0.625rem 0.75rem', fontWeight: 600 }}>
-                      {check.status_code ?? '—'}
-                    </td>
-                    <td className="font-mono" style={{ padding: '0.625rem 0.75rem' }}>
-                      {check.response_time !== null && check.response_time !== undefined ? `${check.response_time} ms` : '—'}
-                    </td>
-                    <td style={{ padding: '0.625rem 0.75rem', color: 'var(--text-secondary)' }}>
-                      {parseUtcDate(check.checked_at)?.toLocaleString() || check.checked_at}
-                    </td>
-                    <td style={{ padding: '0.625rem 0.75rem', color: check.error ? 'var(--danger)' : 'var(--text-muted)' }}>
-                      {check.error || 'OK'}
-                    </td>
+          <>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                    <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Status</th>
+                    <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>HTTP Code</th>
+                    <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Latency</th>
+                    <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Checked At</th>
+                    <th style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Error / Details</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {sortedHealthChecks.map((check) => (
+                    <tr key={check.id} style={{ borderBottom: '1px solid var(--border-muted)' }}>
+                      <td style={{ padding: '0.625rem 0.75rem' }}>
+                        <StatusBadge status={check.status} />
+                      </td>
+                      <td className="font-mono" style={{ padding: '0.625rem 0.75rem', fontWeight: 600 }}>
+                        {check.status_code ?? '—'}
+                      </td>
+                      <td className="font-mono" style={{ padding: '0.625rem 0.75rem' }}>
+                        {check.response_time !== null && check.response_time !== undefined ? `${check.response_time} ms` : '—'}
+                      </td>
+                      <td style={{ padding: '0.625rem 0.75rem', color: 'var(--text-secondary)' }}>
+                        {parseUtcDate(check.checked_at)?.toLocaleString() || check.checked_at}
+                      </td>
+                      <td style={{ padding: '0.625rem 0.75rem', color: check.error ? 'var(--danger)' : 'var(--text-muted)' }}>
+                        {check.error || 'OK'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', marginTop: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={healthPage === 0 || healthLoading}
+                onClick={() => setHealthPage((p) => Math.max(0, p - 1))}
+              >
+                <ChevronLeft size={14} /> Previous
+              </button>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Page {healthPage + 1}</span>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={sortedHealthChecks.length < pageSize || healthLoading}
+                onClick={() => setHealthPage((p) => p + 1)}
+              >
+                Next <ChevronRight size={14} />
+              </button>
+            </div>
+          </>
         )}
       </div>
 
-      {/* MONITOR CONFIGURATION SUMMARY CARD */}
-      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-        <h2 className="heading-md" style={{ margin: 0 }}>Monitor Overview</h2>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1.25rem' }}>
-          <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              HTTP Method
-            </span>
-            <p className="font-mono" style={{ margin: '4px 0 0', fontWeight: 600, color: 'var(--text-primary)' }}>
-              {monitor.method}
-            </p>
-          </div>
-
-          <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Check Interval
-            </span>
-            <p style={{ margin: '4px 0 0', fontWeight: 500, color: 'var(--text-primary)' }}>
-              Every {monitor.interval} seconds
-            </p>
-          </div>
-
-          <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Request Timeout
-            </span>
-            <p style={{ margin: '4px 0 0', fontWeight: 500, color: 'var(--text-primary)' }}>
-              {monitor.timeout} seconds
-            </p>
-          </div>
-
-          <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Expected Status
-            </span>
-            <p className="font-mono" style={{ margin: '4px 0 0', fontWeight: 600, color: 'var(--text-primary)' }}>
-              {monitor.expected_status}
-            </p>
-          </div>
-        </div>
-
-        <div style={{ height: '1px', backgroundColor: 'var(--border-muted)', margin: '0.5rem 0' }} />
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1.25rem' }}>
-          <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Failure Threshold
-            </span>
-            <p style={{ margin: '4px 0 0', fontWeight: 500, color: 'var(--text-primary)' }}>
-              {monitor.failure_threshold} consecutive failures
-            </p>
-          </div>
-
-          <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Degraded Threshold
-            </span>
-            <p style={{ margin: '4px 0 0', fontWeight: 500, color: 'var(--text-primary)' }}>
-              {monitor.degraded_threshold} ms latency
-            </p>
-          </div>
-
-          <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Recovery Threshold
-            </span>
-            <p style={{ margin: '4px 0 0', fontWeight: 500, color: 'var(--text-primary)' }}>
-              {monitor.recovery_threshold} consecutive successes
-            </p>
-          </div>
-
-          <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Activity State
-            </span>
-            <p style={{ margin: '4px 0 0', fontWeight: 500, color: monitor.is_active ? 'var(--brand-dark)' : 'var(--warning)' }}>
-              {monitor.is_active ? 'Active' : 'Paused'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Delete Confirmation Modal Overlay */}
+      {/* Delete Modal Overlay */}
       {showDeleteModal && (
         <div
           style={{
@@ -740,7 +780,7 @@ export default function MonitorDetail() {
               backgroundColor: 'var(--surface)',
               border: '1px solid var(--border)',
               borderRadius: 'var(--radius-md)',
-              boxShadow: 'var(--shadow-lg, 0 10px 25px rgba(0,0,0,0.15))',
+              boxShadow: 'var(--shadow-lg)',
             }}
             onClick={(e) => e.stopPropagation()}
           >

@@ -64,4 +64,38 @@ export const authApi = {
       method: 'POST',
     });
   },
+
+  /**
+   * Get current notification preferences
+   * GET /api/auth/preferences
+   */
+  async getPreferences() {
+    return apiClient('/api/auth/preferences', {
+      method: 'GET',
+    });
+  },
+
+  /**
+   * Update notification preferences
+   * PATCH /api/auth/preferences
+   * Body: { email_notifications_enabled, down_alerts_enabled, recovery_alerts_enabled }
+   */
+  async updatePreferences(preferences) {
+    return apiClient('/api/auth/preferences', {
+      method: 'PATCH',
+      body: preferences,
+    });
+  },
+
+  /**
+   * Update user profile details
+   * PATCH /api/auth/profile
+   * Body: { name }
+   */
+  async updateProfile({ name }) {
+    return apiClient('/api/auth/profile', {
+      method: 'PATCH',
+      body: { name },
+    });
+  },
 };

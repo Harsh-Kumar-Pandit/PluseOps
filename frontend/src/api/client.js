@@ -57,7 +57,7 @@ async function handleResponse(response) {
       errorMessage = data.detail.map((err) => `${err.loc?.join('.') || 'field'}: ${err.msg}`).join(', ');
     }
   } else if (response.status === 404) {
-    errorMessage = 'Monitor not found';
+    errorMessage = 'Resource not found';
   } else if (response.status === 401) {
     errorMessage = 'Authentication session expired. Please sign in again.';
   } else if (response.status === 403) {
