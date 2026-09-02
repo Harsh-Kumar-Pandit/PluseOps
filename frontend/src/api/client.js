@@ -35,6 +35,42 @@ const processQueue = (error, token = null) => {
 };
 
 /**
+ * Process HTTP response safely for 200, 201, 204, and error status codes
+ */
+async function handleResponse(response) {
+  // 204 No Content
+  if (response.status === 204) {
+    return null;
+  }
+
+  const data = await response.json().catch(() => ({}));
+
+  if (response.ok) {
+    return data;
+  }
+
+  let errorMessage = 'An error occurred';
+  if (data && data.detail) {
+    if (typeof data.detail === 'string') {
+      errorMessage = data.detail;
+    } else if (Array.isArray(data.detail)) {
+      errorMessage = data.detail.map((err) => `${err.loc?.join('.') || 'field'}: ${err.msg}`).join(', ');
+    }
+  } else if (response.status === 404) {
+    errorMessage = 'Monitor not found';
+  } else if (response.status === 401) {
+    errorMessage = 'Authentication session expired. Please sign in again.';
+  } else if (response.status === 403) {
+    errorMessage = 'Access denied. You do not have permission to perform this action.';
+  }
+
+  const error = new Error(errorMessage);
+  error.status = response.status;
+  error.data = data;
+  throw error;
+}
+
+/**
  * Standard API request wrapper
  */
 export async function apiClient(endpoint, options = {}) {
@@ -42,9 +78,11 @@ export async function apiClient(endpoint, options = {}) {
 
   const accessToken = getAccessToken();
 
-  const defaultHeaders = {
-    'Content-Type': 'application/json',
-  };
+  const defaultHeaders = {};
+
+  if (body !== undefined) {
+    defaultHeaders['Content-Type'] = 'application/json';
+  }
 
   if (accessToken) {
     defaultHeaders['Authorization'] = `Bearer ${accessToken}`;
@@ -68,17 +106,6 @@ export async function apiClient(endpoint, options = {}) {
   try {
     const response = await fetch(url, config);
 
-    // 204 No Content
-    if (response.status === 204) {
-      return null;
-    }
-
-    const data = await response.json().catch(() => ({}));
-
-    if (response.ok) {
-      return data;
-    }
-
     // 401 Unauthorized handling with token refresh
     if (response.status === 401 && !_retry) {
       const refreshToken = getRefreshToken();
@@ -90,7 +117,7 @@ export async function apiClient(endpoint, options = {}) {
           })
             .then((token) => {
               config.headers['Authorization'] = `Bearer ${token}`;
-              return fetch(url, config).then((res) => res.json());
+              return fetch(url, config).then(handleResponse);
             })
             .catch((err) => Promise.reject(err));
         }
@@ -116,7 +143,7 @@ export async function apiClient(endpoint, options = {}) {
             config.headers['Authorization'] = `Bearer ${refreshData.access_token}`;
             config._retry = true;
             const retryRes = await fetch(url, config);
-            return await retryRes.json();
+            return await handleResponse(retryRes);
           } else {
             clearTokens();
             processQueue(new Error('Refresh token expired'), null);
@@ -135,23 +162,10 @@ export async function apiClient(endpoint, options = {}) {
       }
     }
 
-    // Format error message from FastAPI / Pydantic schema
-    let errorMessage = 'An error occurred';
-    if (data.detail) {
-      if (typeof data.detail === 'string') {
-        errorMessage = data.detail;
-      } else if (Array.isArray(data.detail)) {
-        errorMessage = data.detail.map((err) => `${err.loc?.join('.') || 'field'}: ${err.msg}`).join(', ');
-      }
-    }
-
-    const error = new Error(errorMessage);
-    error.status = response.status;
-    error.data = data;
-    throw error;
+    return await handleResponse(response);
   } catch (err) {
-    if (!err.status) {
-      err.message = err.message || 'Network error. Please check backend connection.';
+    if (!err.status && err.name === 'TypeError' && err.message.includes('fetch')) {
+      err.message = 'Network error. Please check backend connection.';
     }
     throw err;
   }

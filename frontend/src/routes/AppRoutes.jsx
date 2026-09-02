@@ -18,6 +18,7 @@ import Dashboard from '../pages/app/Dashboard';
 import Monitors from '../pages/app/Monitors';
 import MonitorNew from '../pages/app/MonitorNew';
 import MonitorDetail from '../pages/app/MonitorDetail';
+import MonitorEdit from '../pages/app/MonitorEdit';
 import Incidents from '../pages/app/Incidents';
 import IncidentDetail from '../pages/app/IncidentDetail';
 import Settings from '../pages/app/Settings';
@@ -62,6 +63,7 @@ export default function AppRoutes() {
         <Route path="/monitors" element={<Monitors />} />
         <Route path="/monitors/new" element={<MonitorNew />} />
         <Route path="/monitors/:id" element={<MonitorDetail />} />
+        <Route path="/monitors/:id/edit" element={<MonitorEdit />} />
         <Route path="/incidents" element={<Incidents />} />
         <Route path="/incidents/:id" element={<IncidentDetail />} />
         <Route path="/settings" element={<Settings />} />
