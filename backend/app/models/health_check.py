@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import (
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
 )
@@ -13,6 +14,20 @@ from app.core.database import Base
 
 class HealthCheck(Base):
     __tablename__ = "health_checks"
+
+    __table_args__ = (
+        Index(
+            "ix_health_checks_monitor_checked_at",
+            "monitor_id",
+            "checked_at",
+        ),
+    )   
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True
+    )
 
     id: Mapped[int] = mapped_column(
         primary_key=True,

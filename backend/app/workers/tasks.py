@@ -2,12 +2,45 @@ import time
 from datetime import datetime, timedelta
 
 import httpx
-
+from sqlalchemy import delete
 from app.core.celery_app import celery_app
 from app.core.database import SessionLocal
 from app.models.monitor import Monitor
 from app.models.health_check import HealthCheck
 from app.models.incident import Incident
+
+RETENTION_DAYS = 31
+
+
+@celery_app.task
+def cleanup_old_health_checks():
+    cutoff = datetime.utcnow() - timedelta(days=RETENTION_DAYS)
+
+    db = SessionLocal()
+
+    try:
+        result = db.execute(
+            delete(HealthCheck).where(
+                HealthCheck.checked_at < cutoff
+            )
+        )
+
+        deleted_count = result.rowcount or 0
+
+        db.commit()
+
+        return {
+            "deleted_health_checks": deleted_count,
+            "retention_days": RETENTION_DAYS,
+            "cutoff": cutoff.isoformat(),
+        }
+
+    except Exception:
+        db.rollback()
+        raise
+
+    finally:
+        db.close()
 
 
 @celery_app.task
@@ -28,10 +61,9 @@ def check_monitor(monitor_id: int):
         response = None
         last_error = None
 
-        # -------------------------
-        # HTTP CHECK + RETRY
-        # -------------------------
-
+        # -----------------------------
+        # REQUEST + RETRY
+        # -----------------------------
         for attempt in range(max_attempts):
             try:
                 response = httpx.request(
@@ -82,71 +114,69 @@ def check_monitor(monitor_id: int):
             (time.perf_counter() - start_time) * 1000
         )
 
-        # -------------------------
-        # DETERMINE RESULT
-        # -------------------------
-
+        # -----------------------------
+        # DETERMINE CHECK RESULT
+        # -----------------------------
         if response is not None:
 
             if response.status_code == monitor.expected_status:
 
-                # SUCCESS
+                # Successful response
                 monitor.consecutive_failures = 0
                 monitor.consecutive_successes += 1
 
+                # Slow but successful
                 if response_time > monitor.degraded_threshold:
                     status = "DEGRADED"
                     error = (
                         f"Response time {response_time}ms "
                         f"exceeded threshold"
                     )
+                    monitor.status = "DEGRADED"
 
                 else:
                     status = "UP"
                     error = None
 
-                # -------------------------
-                # RECOVERY LOGIC
-                # -------------------------
+                    # Recovery logic
+                    if monitor.status == "DOWN":
 
-                if monitor.status == "DOWN":
+                        if (
+                            monitor.consecutive_successes
+                            >= monitor.recovery_threshold
+                        ):
+                            monitor.status = "UP"
 
-                    if (
-                        monitor.consecutive_successes
-                        >= monitor.recovery_threshold
-                    ):
+                            incident = (
+                                db.query(Incident)
+                                .filter(
+                                    Incident.monitor_id == monitor.id,
+                                    Incident.status == "OPEN",
+                                )
+                                .order_by(
+                                    Incident.started_at.desc()
+                                )
+                                .first()
+                            )
+
+                            if incident:
+                                now = datetime.utcnow()
+
+                                incident.status = "RESOLVED"
+                                incident.resolved_at = now
+                                incident.duration = int(
+                                    (
+                                        now
+                                        - incident.started_at
+                                    ).total_seconds()
+                                )
+
+                    elif monitor.status in ("PENDING", "DEGRADED"):
                         monitor.status = "UP"
-
-                        incident = (
-                            db.query(Incident)
-                            .filter(
-                                Incident.monitor_id == monitor.id,
-                                Incident.status == "OPEN",
-                            )
-                            .first()
-                        )
-
-                        if incident:
-                            incident.status = "RESOLVED"
-                            incident.resolved_at = datetime.utcnow()
-
-                            incident.duration = int(
-                                (
-                                    incident.resolved_at
-                                    - incident.started_at
-                                ).total_seconds()
-                            )
-
-                    else:
-                        # Still recovering
-                        status = "DOWN"
-
-                elif status == "UP":
-                    monitor.status = "UP"
 
             else:
 
-                # FAILURE
+                # Failed HTTP status
                 status = "DOWN"
 
                 error = (
@@ -157,18 +187,13 @@ def check_monitor(monitor_id: int):
                 monitor.consecutive_failures += 1
                 monitor.consecutive_successes = 0
 
-                # -------------------------
-                # FAILURE THRESHOLD
-                # -------------------------
-
                 if (
                     monitor.consecutive_failures
                     >= monitor.failure_threshold
                 ):
-
                     monitor.status = "DOWN"
 
-                    # Check if incident already exists
+                    # Check whether an incident already exists
                     incident = (
                         db.query(Incident)
                         .filter(
@@ -178,9 +203,8 @@ def check_monitor(monitor_id: int):
                         .first()
                     )
 
-                    # Create only one incident
-                    if incident is None:
-
+                    # Create only one OPEN incident
+                    if not incident:
                         incident = Incident(
                             monitor_id=monitor.id,
                             status="OPEN",
@@ -192,10 +216,7 @@ def check_monitor(monitor_id: int):
 
         else:
 
-            # -------------------------
-            # REQUEST FAILED
-            # -------------------------
-
+            # Connection / timeout / request failure
             status = "DOWN"
             error = last_error or "Request failed"
 
@@ -206,7 +227,6 @@ def check_monitor(monitor_id: int):
                 monitor.consecutive_failures
                 >= monitor.failure_threshold
             ):
-
                 monitor.status = "DOWN"
 
                 incident = (
@@ -218,8 +238,7 @@ def check_monitor(monitor_id: int):
                     .first()
                 )
 
-                if incident is None:
-
+                if not incident:
                     incident = Incident(
                         monitor_id=monitor.id,
                         status="OPEN",
@@ -229,10 +248,9 @@ def check_monitor(monitor_id: int):
 
                     db.add(incident)
 
-        # -------------------------
-        # SAVE HEALTH CHECK
-        # -------------------------
-
+        # -----------------------------
+        # STORE HEALTH CHECK
+        # -----------------------------
         health_check = HealthCheck(
             monitor_id=monitor.id,
             status=status,
@@ -246,18 +264,13 @@ def check_monitor(monitor_id: int):
         )
 
         db.add(health_check)
-
         db.commit()
 
         return {
             "monitor_id": monitor.id,
-            "status": status,
-            "status_code": (
-                response.status_code
-                if response is not None
-                else None
-            ),
-            "response_time": response_time,
+            "status": health_check.status,
+            "status_code": health_check.status_code,
+            "response_time": health_check.response_time,
             "consecutive_failures": monitor.consecutive_failures,
             "consecutive_successes": monitor.consecutive_successes,
             "monitor_status": monitor.status,

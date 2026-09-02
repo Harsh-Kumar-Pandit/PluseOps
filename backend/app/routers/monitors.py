@@ -34,7 +34,9 @@ def create_monitor(
         interval=data.interval,
         timeout=data.timeout,
         expected_status=data.expected_status,
-        failure_threshold=data.failure_threshold
+        failure_threshold=data.failure_threshold,
+        degraded_threshold=data.degraded_threshold,
+        recovery_threshold=data.recovery_threshold,
     )
 
     db.add(monitor)

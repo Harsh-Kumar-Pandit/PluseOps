@@ -34,6 +34,18 @@ class MonitorCreate(BaseModel):
         le=10,
     )
 
+    degraded_threshold: int = Field(
+        default=2000,
+        ge=500,
+        le=10000,
+    )
+
+    recovery_threshold: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+    )
+
 
 class MonitorUpdate(BaseModel):
     name: str | None = Field(
@@ -74,6 +86,18 @@ class MonitorUpdate(BaseModel):
 
     is_active: bool | None = None
 
+    degraded_threshold: int | None = Field(
+        default=None,
+        ge=500,
+        le=10000,
+    )
+
+    recovery_threshold: int | None = Field(
+        default=None,
+        ge=1,
+        le=10,
+    )
+
 
 class MonitorResponse(BaseModel):
     id: int
@@ -84,6 +108,10 @@ class MonitorResponse(BaseModel):
     timeout: int
     expected_status: int
     failure_threshold: int
+    consecutive_failures: int
+    consecutive_successes: int
+    degraded_threshold: int
+    recovery_threshold: int
     status: str
     is_active: bool
 

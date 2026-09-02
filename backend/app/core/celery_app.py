@@ -20,4 +20,9 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.check_all_monitors",
         "schedule": 60.0,
     },
+        "cleanup-old-health-checks": {
+        "task": "app.workers.tasks.cleanup_old_health_checks",
+        "schedule": 86400.0,
+    },
+
 }
